@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zone Scanner</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>Demand &amp; Supply Zone Scanner</h1>
+      <span class="sub">Swing · <span class="tip" data-tip="htf">HTF</span> Weekly · <span class="tip" data-tip="itf">ITF</span> Daily · <span class="tip" data-tip="ltf">LTF</span> <span id="ltfLabel">2h</span></span>
+      <span id="provider" class="badge"></span>
+      <nav class="tabs" id="tabs">
+        <button type="button" data-view="scan" class="on">Scanner</button><button type="button" data-view="backtest">Backtest</button><button type="button" data-view="journal">Journal</button>
+      </nav>
+    </div>
+    <form id="controls">
+      <label><span class="tip" data-tip="ltf">LTF</span>
+        <select id="ltf"><option>2h</option><option>1h</option></select>
+      </label>
+      <label>Capital <input id="capital" type="number" step="1000" min="0"></label>
+      <label>Risk % <input id="risk" type="number" step="0.1" min="0"></label>
+      <label>R:R 1: <input id="rr" type="number" step="0.5" min="1"></label>
+      <label>Show
+        <select id="filter">
+          <option value="all">All stocks</option>
+          <option value="plan">With trade setup</option>
+          <option value="aligned" title="Stocks with a trade setup whose direction agrees with the weekly (HTF) curve">Setup aligned with HTF</option>
+          <option value="BUY">Buy action</option>
+          <option value="SELL">Sell action</option>
+          <option value="inzone" title="Price is currently inside a weekly (HTF) demand or supply zone">Price at HTF zone</option>
+        </select>
+      </label>
+      <label class="check"><input id="refresh" type="checkbox"> Fresh data</label>
+      <button id="scanBtn" type="submit">Scan watchlist</button>
+      <span id="progress"></span>
+    </form>
+  </header>
+
+  <main id="scanView">
+    <section id="listPane">
+      <table id="results">
+        <thead>
+          <tr>
+            <th>#</th><th>Symbol</th><th>Price</th><th>Pulse</th><th>Trend</th><th>Action</th>
+            <th><span class="tip" data-tip="curve">HTF curve</span></th><th><span class="tip" data-tip="wdz">Weekly DZ</span></th><th><span class="tip" data-tip="wsz">Weekly SZ</span></th><th><span class="tip" data-tip="ltfSetup">LTF setup</span></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div id="pager" class="pager" hidden></div>
+      <p id="empty" class="muted">Press <b>Scan watchlist</b> to analyse the stocks in <code>watchlist.txt</code>.</p>
+    </section>
+
+    <section id="detailPane" hidden>
+      <div class="detail-head">
+        <h2 id="dSymbol"></h2>
+        <div class="tfs" id="tfButtons">
+          <button data-tf="W" data-tip="tfW">W</button><button data-tf="D" data-tip="tfD">D</button>
+          <button data-tf="2h" class="on" data-tip="tfLtf">2h</button><button data-tf="1h" data-tip="tfLtf">1h</button>
+        </div>
+        <label class="check"><input id="showBroken" type="checkbox"> Broken zones</label>
+        <label class="check"><input id="showTested" type="checkbox" checked> Tested zones</label>
+        <button id="closeDetail" class="ghost">✕</button>
+      </div>
+      <div id="chartInfo" class="chart-info small"></div>
+      <div id="chart"></div>
+      <div class="legend">
+        <span><i class="sw dz"></i>Fresh demand (proximal solid, distal dashed)</span>
+        <span><i class="sw sz"></i>Fresh supply</span>
+        <span><i class="sw tz"></i>Tested zone</span>
+        <span><i class="sw e20"></i>EMA 20</span><span><i class="sw e50"></i>EMA 50</span>
+      </div>
+      <div class="cards" id="cards"></div>
+      <h3>Zones on this timeframe</h3>
+      <table id="zoneTable">
+        <thead><tr><th>Type</th><th>Formed</th><th>Proximal</th><th>Distal</th><th>UOC</th>
+          <th><span class="tip" data-tip="r124">1-2-4</span></th><th>Gap</th><th>Tests</th><th>Status</th><th>Score</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </main>
+  <main id="btView" hidden>
+    <section>
+      <form id="btForm" class="btform">
+        <label>Symbols <input id="btSyms" placeholder="blank = whole watchlist" size="26"></label>
+        <label><span class="tip" data-tip="ltf">LTF</span> <select id="btLtf"><option>2h</option><option>1h</option></select></label>
+        <label>R:R 1: <input id="btRr" type="number" step="0.5" min="1"></label>
+        <label>Capital <input id="btCapital" type="number" step="1000" min="0"></label>
+        <label>Risk % <input id="btRisk" type="number" step="0.1" min="0"></label>
+        <label>Min grade
+          <select id="btGrade"><option value="D">All (A–D)</option><option value="C">C or better</option>
+            <option value="B">B or better</option><option value="A">A only</option></select>
+        </label>
+        <label>Side
+          <select id="btSides"><option value="both">Buy &amp; Sell</option><option value="long">Buy only</option>
+            <option value="short">Sell only</option></select>
+        </label>
+        <label class="check"><input id="btAligned" type="checkbox"> Only <span class="tip" data-tip="withHtf">with HTF</span></label>
+        <label><span class="tip" data-tip="btCost">Costs %</span> <input id="btCost" type="number" step="0.05" min="0" value="0.2"></label>
+        <button id="btRun" type="submit">Run backtest</button>
+        <span id="btProgress" class="small"></span>
+      </form>
+      <p class="small bt-note">Replays the last ~3 years of candles one bar at a time and follows the scanner's rules, using only data
+        known at each moment: daily action → weekly curve → limit order at the LTF zone's proximal line, SL at distal, target 1:R:R.
+        One trade per stock at a time and one trade per zone. If a candle touches both SL and target, the SL counts.
+        Results are in <span class="tip" data-tip="rmult">R</span> (1R = the amount risked per trade).</p>
+    </section>
+    <section id="btResults" hidden>
+      <div class="cards" id="btCards"></div>
+      <h3>Equity curve <span class="small">(cumulative R after costs, all stocks)</span></h3>
+      <div id="btChart"></div>
+      <div class="bt-groups" id="btGroups"></div>
+      <h3>Per stock</h3>
+      <table id="btPerSym"><thead><tr><th>#</th><th>Symbol</th><th>Trades</th><th>Win %</th><th>Total R</th><th>Avg R</th><th>Period</th></tr></thead><tbody></tbody></table>
+      <div class="pager" id="btSymPager" hidden></div>
+      <h3 id="btTradesHead">Trades</h3>
+      <table id="btTrades"><thead><tr><th>#</th><th>Symbol</th><th>Side</th><th>Zone</th><th>HTF</th><th>Signal</th><th>Entry time</th>
+        <th>Entry</th><th>SL</th><th>Target</th><th>Exit time</th><th>Exit</th><th>Result</th><th>R</th></tr></thead><tbody></tbody></table>
+      <div class="pager" id="btPager" hidden></div>
+    </section>
+  </main>
+
+  <main id="jnView" hidden>
+    <section>
+      <div class="btform">
+        <button id="jnRun" type="button">Save &amp; check now</button>
+        <label>Weeks
+          <select id="jnWeeks">
+            <option value="">Only missing weeks</option>
+            <option value="1">Last week again</option>
+            <option value="4">Last 4 weeks</option>
+            <option value="8">Last 8 weeks</option>
+          </select>
+        </label>
+        <a id="jnExport" class="ghost-link" href="/api/journal/export">Export to Excel (CSV)</a>
+        <span id="jnProgress" class="small"></span>
+      </div>
+      <p class="small bt-note">Every week the app saves the 2h zones formed that week (and the trade setup at Friday's close) with
+        <b>frozen</b> entry, stop loss and 1:5 target, then checks them every following week: filled? target or stop?
+        Both stop rules are followed: <span class="tip" data-tip="jnWick">touch</span> and
+        <span class="tip" data-tip="jnClose">closing basis</span>. Untouched zones expire after <span id="jnExpiry">8</span> weeks.
+        Runs automatically every Saturday with <code>weekly.bat</code> (Windows Task Scheduler), or with the button above.</p>
+    </section>
+    <section id="jnResults" hidden>
+      <div class="cards" id="jnCards"></div>
+      <h3>Results so far <span class="small">(R per trade after costs; 1R = amount risked)</span></h3>
+      <table id="jnGroups"><thead><tr><th></th><th>Zones</th>
+        <th colspan="4">Closing-basis stop</th><th colspan="4">Touch stop</th></tr>
+        <tr><th></th><th></th><th>Trades</th><th>Win %</th><th>Avg R</th><th>Total R</th>
+        <th>Trades</th><th>Win %</th><th>Avg R</th><th>Total R</th></tr></thead><tbody></tbody></table>
+      <h3>Zones</h3>
+      <div class="btform jn-filters">
+        <label>Week <select id="jnFWeek"><option value="">All</option></select></label>
+        <label>Status <select id="jnFStatus"><option value="">All</option><option>waiting</option><option>filled</option>
+          <option>done</option><option>broken</option><option>expired</option></select></label>
+        <label class="check"><input id="jnFSetup" type="checkbox"> Trade setups only</label>
+        <label class="check"><input id="jnFA" type="checkbox"> Grade A only</label>
+      </div>
+      <table id="jnZones"><thead><tr><th>#</th><th>Week</th><th>Symbol</th><th>Zone</th><th>Grade</th><th>Entry</th><th>SL</th>
+        <th>Target</th><th>Status</th><th>Filled</th><th>Closing stop</th><th>Touch stop</th></tr></thead><tbody></tbody></table>
+      <div class="pager" id="jnPager" hidden></div>
+    </section>
+  </main>
+
+  <div id="tooltip" role="tooltip" hidden></div>
+  <script src="/static/app.js"></script>
+  <script src="/static/backtest.js"></script>
+  <script src="/static/journal.js"></script>
+</body>
+</html>
